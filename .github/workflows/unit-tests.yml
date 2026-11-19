@@ -1,0 +1,23 @@
+name: Java unit tests
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run unit tests and coverage
+        run: mvn -B -Dtest=TokenManagerTest,ApiConfigTest verify
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
