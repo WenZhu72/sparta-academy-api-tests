@@ -1,0 +1,78 @@
+name: API integration tests
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  api-integration-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out Java testing framework
+        uses: actions/checkout@v4
+        with:
+          path: tests
+
+      - name: Check out Sparta Academy API
+        uses: actions/checkout@v4
+        with:
+          repository: WenZhu72/sparta-academy-api
+          path: api
+          ref: main
+          token: ${{ secrets.SPARTA_API_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: tests/pom.xml
+
+      - name: Build API Docker image
+        run: docker build -t spartaacademyapi:ci -f api/SpartaAcademyAPI/Dockerfile api/SpartaAcademyAPI
+
+      - name: Start API container
+        run: docker run -d --name sparta-api -p 8080:8080 -e ASPNETCORE_URLS=http://+:8080 spartaacademyapi:ci
+
+      - name: Wait for API to become ready
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            if curl --fail --silent --output /dev/null http://localhost:8080/swagger/v1/swagger.json; then
+              echo 'API is ready'
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' sparta-api | grep -q true; then
+              docker logs sparta-api
+              exit 1
+            fi
+            sleep 2
+          done
+          echo 'API did not become ready in time'
+          docker logs sparta-api
+          exit 1
+
+      - name: Run Gherkin scenarios
+        working-directory: tests
+        run: mvn -B -Dtest=CucumberTestRunner -Dapi.base.url=http://localhost:8080 verify
+
+      - name: Upload Cucumber and JUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-test-results
+          path: |
+            tests/target/cucumber-reports/
+            tests/target/surefire-reports/
+          if-no-files-found: warn
+
+      - name: Show API logs
+        if: failure()
+        run: docker logs sparta-api || true
