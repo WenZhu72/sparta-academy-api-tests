@@ -70,10 +70,11 @@ jobs:
               echo "Checking $WORKFLOW"
 
               RUNS=$(gh api \
+                --method GET \
                 "repos/$REPO/actions/workflows/$WORKFLOW/runs" \
                 -f event=pull_request \
                 -f branch="$HEAD_BRANCH" \
-                -f per_page=100)
+                -F per_page=100)
 
               LATEST=$(jq -c \
                 --argjson pr "$PR" \
