@@ -1,0 +1,105 @@
+
+name: Auto Merge Pull Requests
+
+on:
+  workflow_run:
+    workflows:
+      - API integration tests
+      - Java unit tests
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify both workflows and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PR_NUMBERS=$(gh api \
+            "repos/$REPO/actions/runs/$RUN_ID/pulls" \
+            --jq '.[].number')
+
+          if [ -z "$PR_NUMBERS" ]; then
+            echo "No associated pull request."
+            exit 0
+          fi
+
+          for PR in $PR_NUMBERS; do
+            PR_JSON=$(gh api "repos/$REPO/pulls/$PR")
+
+            BASE=$(jq -r '.base.ref' <<< "$PR_JSON")
+            STATE=$(jq -r '.state' <<< "$PR_JSON")
+            DRAFT=$(jq -r '.draft' <<< "$PR_JSON")
+            HEAD_SHA=$(jq -r '.head.sha' <<< "$PR_JSON")
+            HEAD_REPO=$(jq -r '.head.repo.full_name' <<< "$PR_JSON")
+
+            if [ "$BASE" != "main" ] ||
+               [ "$STATE" != "open" ] ||
+               [ "$DRAFT" != "false" ] ||
+               [ "$HEAD_REPO" != "$REPO" ]; then
+              echo "PR #$PR is not eligible."
+              continue
+            fi
+
+            ALL_PASSED=true
+
+            for WORKFLOW in \
+              "unit-tests.yml" \
+              "tests.yml"; do
+
+              RUNS=$(gh api --paginate \
+                "repos/$REPO/actions/workflows/$WORKFLOW/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100" \
+                --jq '.workflow_runs[] |
+                  select(.status == "completed" and
+                         .conclusion == "success") |
+                  .id')
+
+              FOUND=false
+
+              for TEST_RUN in $RUNS; do
+                ASSOCIATED=$(gh api \
+                  "repos/$REPO/actions/runs/$TEST_RUN/pulls" \
+                  --jq --argjson pr "$PR" \
+                  'any(.[]; .number == $pr)')
+
+                if [ "$ASSOCIATED" = "true" ]; then
+                  FOUND=true
+                  break
+                fi
+              done
+
+              if [ "$FOUND" != "true" ]; then
+                echo "$WORKFLOW has not passed for PR #$PR."
+                ALL_PASSED=false
+                break
+              fi
+            done
+
+            if [ "$ALL_PASSED" != "true" ]; then
+              echo "Not merging PR #$PR."
+              continue
+            fi
+
+            echo "Both workflows passed for PR #$PR."
+
+            gh pr merge "$PR" \
+              --repo "$REPO" \
+              --squash \
+              --match-head-commit "$HEAD_SHA"
+          done

@@ -62,4 +62,20 @@ public class SpartanSteps {
                 equalTo(context.getSpartanId())
         );
     }
+
+    @Then("the Spartan first name should be {string}")
+    public void spartanFirstNameShouldBe(String expectedFirstName) {
+        String actualFirstName =
+                context.getResponse().jsonPath().getString("firstName");
+
+        assertThat(actualFirstName, equalTo(expectedFirstName));
+    }
+
+    @Then("the Spartan last name should be {string}")
+    public void spartanLastNameShouldBe(String expectedLastName) {
+        String actualLastName =
+                context.getResponse().jsonPath().getString("lastName");
+
+        assertThat(actualLastName, equalTo(expectedLastName));
+    }
 }
