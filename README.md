@@ -49,3 +49,6 @@ Add reusable HTTP steps to `CommonSteps`; response assertions to `ResponseSteps`
 ## Outstanding assignment deliverables
 
 Project board/user stories, completed defect reports, integration test run evidence, README PDF export, coverage report, and five-minute non-technical video. See `docs/assignment-checklist.md`.
+ 
+## Auto-merge workflow test 
+Testing automatic pull request merging. 
