@@ -14,6 +14,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: auto-merge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
 jobs:
   auto-merge:
     if: >
@@ -26,14 +30,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_RUN_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
         shell: bash
         run: |
           set -euo pipefail
 
-          PR_NUMBERS=$(gh api \
-            "repos/$REPO/actions/runs/$RUN_ID/pulls" \
-            --jq '.[].number')
+          PR_NUMBERS=$(jq -r '.[].number' <<< "$EVENT_RUN_PRS")
 
           if [ -z "$PR_NUMBERS" ]; then
             echo "No associated pull request."
@@ -41,12 +44,15 @@ jobs:
           fi
 
           for PR in $PR_NUMBERS; do
+            echo "Checking PR #$PR"
+
             PR_JSON=$(gh api "repos/$REPO/pulls/$PR")
 
             BASE=$(jq -r '.base.ref' <<< "$PR_JSON")
             STATE=$(jq -r '.state' <<< "$PR_JSON")
             DRAFT=$(jq -r '.draft' <<< "$PR_JSON")
             HEAD_SHA=$(jq -r '.head.sha' <<< "$PR_JSON")
+            HEAD_BRANCH=$(jq -r '.head.ref' <<< "$PR_JSON")
             HEAD_REPO=$(jq -r '.head.repo.full_name' <<< "$PR_JSON")
 
             if [ "$BASE" != "main" ] ||
@@ -58,48 +64,92 @@ jobs:
             fi
 
             ALL_PASSED=true
+            EXPECTED_RUN_SHA=""
 
-            for WORKFLOW in \
-              "unit-tests.yml" \
-              "tests.yml"; do
+            for WORKFLOW in "unit-tests.yml" "tests.yml"; do
+              echo "Checking $WORKFLOW"
 
-              RUNS=$(gh api --paginate \
-                "repos/$REPO/actions/workflows/$WORKFLOW/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100" \
-                --jq '.workflow_runs[] |
-                  select(.status == "completed" and
-                         .conclusion == "success") |
-                  .id')
+              RUNS=$(gh api \
+                "repos/$REPO/actions/workflows/$WORKFLOW/runs" \
+                -f event=pull_request \
+                -f branch="$HEAD_BRANCH" \
+                -f per_page=100)
 
-              FOUND=false
+              LATEST=$(jq -c \
+                --argjson pr "$PR" \
+                --arg sha "$HEAD_SHA" '
+                [
+                  .workflow_runs[]
+                  | select(
+                      any(.pull_requests[]?;
+                        .number == $pr and .head.sha == $sha
+                      )
+                    )
+                ]
+                | sort_by(.created_at, .id)
+                | last // empty
+              ' <<< "$RUNS")
 
-              for TEST_RUN in $RUNS; do
-                ASSOCIATED=$(gh api \
-                  "repos/$REPO/actions/runs/$TEST_RUN/pulls" \
-                  --jq --argjson pr "$PR" \
-                  'any(.[]; .number == $pr)')
-
-                if [ "$ASSOCIATED" = "true" ]; then
-                  FOUND=true
-                  break
-                fi
-              done
-
-              if [ "$FOUND" != "true" ]; then
-                echo "$WORKFLOW has not passed for PR #$PR."
+              if [ -z "$LATEST" ]; then
+                echo "No matching run for $WORKFLOW."
                 ALL_PASSED=false
                 break
               fi
+
+              STATUS=$(jq -r '.status' <<< "$LATEST")
+              CONCLUSION=$(jq -r '.conclusion' <<< "$LATEST")
+              RUN_SHA=$(jq -r '.head_sha' <<< "$LATEST")
+
+              echo "Status: $STATUS"
+              echo "Conclusion: $CONCLUSION"
+
+              if [ "$STATUS" != "completed" ] ||
+                 [ "$CONCLUSION" != "success" ]; then
+                echo "$WORKFLOW has not passed."
+                ALL_PASSED=false
+                break
+              fi
+
+              if [ -n "$EXPECTED_RUN_SHA" ] &&
+                 [ "$RUN_SHA" != "$EXPECTED_RUN_SHA" ]; then
+                echo "Workflow runs tested different commits."
+                ALL_PASSED=false
+                break
+              fi
+
+              EXPECTED_RUN_SHA="$RUN_SHA"
             done
 
             if [ "$ALL_PASSED" != "true" ]; then
-              echo "Not merging PR #$PR."
+              echo "PR #$PR will not be merged."
               continue
             fi
 
-            echo "Both workflows passed for PR #$PR."
+            if [ "$EVENT_RUN_SHA" != "$EXPECTED_RUN_SHA" ]; then
+              echo "The triggering run is outdated."
+              continue
+            fi
+
+            echo "Both required workflows passed."
+
+            LATEST_PR=$(gh api "repos/$REPO/pulls/$PR")
+            LATEST_HEAD=$(jq -r '.head.sha' <<< "$LATEST_PR")
+            MERGEABLE=$(jq -r '.mergeable' <<< "$LATEST_PR")
+
+            if [ "$LATEST_HEAD" != "$HEAD_SHA" ]; then
+              echo "PR was updated during verification."
+              continue
+            fi
+
+            if [ "$MERGEABLE" != "true" ]; then
+              echo "PR is not currently mergeable."
+              continue
+            fi
 
             gh pr merge "$PR" \
               --repo "$REPO" \
               --squash \
               --match-head-commit "$HEAD_SHA"
+
+            echo "Merge requested for PR #$PR."
           done
