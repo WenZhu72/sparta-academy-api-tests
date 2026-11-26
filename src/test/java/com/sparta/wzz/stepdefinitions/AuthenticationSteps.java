@@ -1,4 +1,3 @@
-
 package com.sparta.wzz.stepdefinitions;
 
 import com.sparta.wzz.client.ApiClient;

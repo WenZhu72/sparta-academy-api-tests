@@ -12,3 +12,8 @@ Feature: Spartan deletion request handling
   Scenario: Reject a nonnumeric Spartan ID
     When I send a DELETE request to "/api/spartans/invalid"
     Then the response status code should be 400
+
+  @HappyPath
+  Scenario: Successfully delete an existing Spartan
+    When I send a DELETE request to "/api/spartans/2"
+    Then the response status code should be 204

@@ -75,4 +75,13 @@ public class ApiClient {
                 .when()
                 .delete(endpoint);
     }
+
+    // Unauthenticated PUT request
+    public Response put(String endpoint, Object body) {
+        return request()
+                .contentType("application/json")
+                .body(body)
+                .when()
+                .put(endpoint);
+    }
 }

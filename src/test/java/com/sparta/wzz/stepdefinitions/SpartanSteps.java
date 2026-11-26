@@ -6,6 +6,10 @@ import com.sparta.wzz.context.ScenarioContext;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 
@@ -77,5 +81,36 @@ public class SpartanSteps {
                 context.getResponse().jsonPath().getString("lastName");
 
         assertThat(actualLastName, equalTo(expectedLastName));
+    }
+
+    @Then("all Spartan {string} values should contain between {int} and {int} characters")
+    public void validateSpartanFieldLengths(String field, int min, int max) {
+
+        List<Map<String, Object>> spartans =
+                context.getResponse().jsonPath().getList("$");
+
+        List<String> invalidSpartans = new ArrayList<>();
+
+        for (Map<String, Object> spartan : spartans) {
+
+            String value = (String) spartan.get(field);
+
+            if (value == null || value.length() < min
+                    || value.length() > max) {
+
+                invalidSpartans.add(
+                        "Spartan ID: " + spartan.get("id")
+                                + ", " + field + ": " + value
+                                + ", Length: "
+                                + (value == null ? "null" : value.length())
+                );
+            }
+        }
+
+        assertThat(
+                "Invalid Spartan records: " + invalidSpartans,
+                invalidSpartans,
+                empty()
+        );
     }
 }

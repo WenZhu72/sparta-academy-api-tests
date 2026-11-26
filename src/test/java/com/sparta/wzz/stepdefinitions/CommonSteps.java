@@ -98,4 +98,18 @@ public class CommonSteps {
                 equalTo(statusCode)
         );
     }
+
+    @When("I send an unauthenticated POST request to {string}")
+    public void iSendUnauthenticatedPostRequest(String endpoint) {
+        context.setResponse(
+                apiClient.post(endpoint, context.getRequestBody())
+        );
+    }
+
+    @When("I send an unauthenticated PUT request to {string}")
+    public void iSendUnauthenticatedPutRequest(String endpoint) {
+        context.setResponse(
+                apiClient.put(endpoint, context.getRequestBody())
+        );
+    }
 }
