@@ -41,3 +41,4 @@ Feature: Spartan POST request validation
     When I send a POST request to "/api/spartans"
     Then the response status code should be 400
     And the validation errors should include "LastName"
+
