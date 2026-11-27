@@ -200,3 +200,5 @@ flowchart LR
 9. Open a pull request. CI runs automatically, and **non-draft eligible PRs may auto-merge** after checks pass.
 
 Never commit API tokens, credentials or generated `target/` build artifacts.
+
+Testing ci/cd
