@@ -201,4 +201,3 @@ flowchart LR
 
 Never commit API tokens, credentials or generated `target/` build artifacts.
 
-Testing ci/cd
